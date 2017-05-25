@@ -8,6 +8,11 @@
 
 #import "ViewController.h"
 #import "AppDelegate.h"
+#import <objc/runtime.h>
+
+
+static char * const kIndexPathAssociationKey = "RDR_indexPath";
+
 
 #define valueURLSTR @"https://glacial-sands-39825.herokuapp.com/downloads/"
 #define itemURLSTR @"https://glacial-sands-39825.herokuapp.com"
@@ -68,7 +73,7 @@
     [spinner setCenter:CGPointMake([UIScreen mainScreen].bounds.size.width/2-10, [UIScreen mainScreen].bounds.size.height/2-40)];
     [tableView addSubview:spinner];
     
-     [spinner startAnimating];
+    [spinner startAnimating];
     
 }
 
@@ -88,7 +93,7 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    return _phraseArray.count;
+    return _itemsArray.count;
 }
 
 
@@ -104,33 +109,70 @@
         cell.backgroundColor = [UIColor blackColor];
         cell.textLabel.font = [UIFont boldSystemFontOfSize:14];
     }
-     cell.textLabel.text = [_phraseArray objectAtIndex:indexPath.row];
- 
+    cell.textLabel.text = [_itemsArray objectAtIndex:indexPath.row];
+    
     return cell;
 }
 
 
 
+
+-(void)downloadValueListWithURL:(NSString*)URLString cell:(UITableViewCell*)cell indexPath:(NSIndexPath*)indexPath{
+    
+    dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0ul);
+    objc_setAssociatedObject(cell,kIndexPathAssociationKey,indexPath,OBJC_ASSOCIATION_RETAIN);
+    dispatch_async(queue, ^
+                   {
+                       NSURL *url = [NSURL URLWithString:URLString];
+                       
+                      
+                                          NSLog(@"url %@",url);
+                                          // Download the data.
+                                          [AppDelegate downloadDataFromURL:url withCompletionHandler:^(NSData *data) {
+                                              // Make sure that there is data.
+                                              if (data != nil) {
+                                                  self.xmlParser = [[NSXMLParser alloc] initWithData:data];
+                                                  self.xmlParser.delegate = self;
+                                                  
+                                                  // Initialize the mutable string that we'll use during parsing.
+                                                  self.foundValue = [[NSMutableString alloc] init];
+                                                  
+                                                  // Start parsing.
+                                                  [self.xmlParser parse];
+                                              }
+                                          }];
+                                      
+                                              
+                   });
+    
+}
+
+
+
 -(void)downloadItemsListWithURL:(NSString*)URLString{
-    // Prepare the URL that we'll get the neighbour countries from.
-  
+    dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0ul);
+    dispatch_async(queue, ^
+                   {
+                       NSURL *url = [NSURL URLWithString:URLString];
+                       dispatch_async(dispatch_get_main_queue(), ^
+                                      {
+                                          [AppDelegate downloadDataFromURL:url withCompletionHandler:^(NSData *data) {
+                                              // Make sure that there is data.
+                                              if (data != nil) {
+                                                  self.xmlParser = [[NSXMLParser alloc] initWithData:data];
+                                                  self.xmlParser.delegate = self;
+                                                  
+                                                  // Initialize the mutable string that we'll use during parsing.
+                                                  self.foundValue = [[NSMutableString alloc] init];
+                                                  
+                                                  // Start parsing.
+                                                  [self.xmlParser parse];
+                                              }
+                                          }];
+                                          
+                                      });
+                   });
     
-    NSURL *url = [NSURL URLWithString:URLString];
-    
-    // Download the data.
-    [AppDelegate downloadDataFromURL:url withCompletionHandler:^(NSData *data) {
-        // Make sure that there is data.
-        if (data != nil) {
-            self.xmlParser = [[NSXMLParser alloc] initWithData:data];
-            self.xmlParser.delegate = self;
-            
-            // Initialize the mutable string that we'll use during parsing.
-            self.foundValue = [[NSMutableString alloc] init];
-            
-            // Start parsing.
-            [self.xmlParser parse];
-        }
-    }];
 }
 
 
@@ -172,24 +214,49 @@
 
 -(void)parser:(NSXMLParser *)parser didEndElement:(NSString *)elementName namespaceURI:(NSString *)namespaceURI qualifiedName:(NSString *)qName{
     
- if ([elementName isEqualToString:@"item"])
- {
-    NSArray * arrayWithspaces = [self breakStringByNewlines:self.foundValue];
-    for (NSString * string in arrayWithspaces)
+    if ([elementName isEqualToString:@"item"])
     {
-        NSString * str =  [self removeWhiteSpaceFromLine:string];
-        if (![str isEqualToString:@""])
+        NSArray * arrayWithspaces = [self breakStringByNewlines:self.foundValue];
+        for (NSString * string in arrayWithspaces)
         {
-            [self.itemsArray addObject:str];
+            NSString * str =  [self removeWhiteSpaceFromLine:string];
+            if (![str isEqualToString:@""])
+            {
+                [self.itemsArray addObject:str];
+                
+                NSMutableArray *indexPathsToDelete = [[NSMutableArray alloc] init];
+                
+                NSIndexPath *indexPath = [NSIndexPath indexPathForRow:_itemsArray.count-1 inSection:0];
+                [indexPathsToDelete addObject:indexPath];
+                [tableView insertRowsAtIndexPaths:indexPathsToDelete withRowAnimation:UITableViewRowAnimationTop];
+                
+                UITableViewCell * cell = [tableView cellForRowAtIndexPath:indexPath];
+                
+                NSString *valueUrlStr = [valueURLSTR stringByAppendingString:str];
+                
+                [self downloadValueListWithURL:valueUrlStr cell:cell indexPath:[NSIndexPath indexPathForRow:_itemsArray.count-1 inSection:0]];
+                
+            }
         }
     }
- }
     else
         if ([elementName isEqualToString:@"value"]){
-            [self.phraseArray addObject:[self.foundValue copy]];
-            NSMutableArray *indexPathsToDelete = [[NSMutableArray alloc] init];
-            [indexPathsToDelete addObject:[NSIndexPath indexPathForRow:_phraseArray.count-1 inSection:0]];
-            [tableView insertRowsAtIndexPaths:indexPathsToDelete withRowAnimation:UITableViewRowAnimationTop];
+            
+            if (!itemsParsed) {
+                [self.itemsArray removeAllObjects];
+                [tableView reloadData];
+                itemsParsed = YES;
+            }
+            
+            [self.itemsArray addObject:[self.foundValue copy]];
+            
+            NSMutableArray *indexPathsToInsert = [[NSMutableArray alloc] init];
+            
+            NSIndexPath *indexPath = [NSIndexPath indexPathForRow:_itemsArray.count-1 inSection:0];
+            [indexPathsToInsert addObject:indexPath];
+            [tableView insertRowsAtIndexPaths:indexPathsToInsert withRowAnimation:UITableViewRowAnimationTop];
+            
+            
         }
     [self.foundValue setString:@""];
 }
@@ -200,14 +267,7 @@
     
     if (errorParsing == NO )
     {
-        if (_itemsArray.count>0) {
-        NSString * valueStr  = [_itemsArray firstObject] ;
-            NSString *valueUrlStr = [valueURLSTR stringByAppendingString:valueStr];
-            [self downloadItemsListWithURL:valueUrlStr];
-        [_itemsArray removeObjectAtIndex:0];
-        
-        }
-        
+      
     } else {
         NSLog(@"Error occurred during XML processing");
     }
@@ -219,7 +279,7 @@
 
 -(void)parserDidStartDocument:(NSXMLParser *)parser{
     // Initialize the neighbours data array.
-   
+    
 }
 
 
