@@ -125,7 +125,8 @@ static char * const kIndexPathAssociationKey = "RDR_indexPath";
                    {
                        NSURL *url = [NSURL URLWithString:URLString];
                        
-                      
+                       dispatch_async(dispatch_get_main_queue(), ^
+                                      {
                                           NSLog(@"url %@",url);
                                           // Download the data.
                                           [AppDelegate downloadDataFromURL:url withCompletionHandler:^(NSData *data) {
@@ -141,8 +142,8 @@ static char * const kIndexPathAssociationKey = "RDR_indexPath";
                                                   [self.xmlParser parse];
                                               }
                                           }];
-                                      
-                                              
+                                          
+                                      });
                    });
     
 }
